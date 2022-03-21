@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"io/ioutil"
 	"log"
+	"os"
 )
 
 type Agenda struct {
@@ -27,6 +29,22 @@ type Paragraph struct {
 		} `json:"body"`
 	} `json:"style"`
 	Priority float32 `json:"priority"`
+}
+
+type Content struct {
+	Attributes Attribute `json:"attributes"`
+	String     string    `json:"string"`
+}
+
+type Attribute struct {
+	Attachment struct {
+		BlobIdentifier string `json:"blobIdentifier"`
+		Name           string `json:"name"`
+	} `json:"attachment"`
+	Link      string `json:"link"`
+	Bold      bool   `json:"bold"`
+	Italic    bool   `json:"italic"`
+	Underline bool   `json:"underline"`
 }
 
 type Attachment struct {
@@ -53,21 +71,45 @@ func run(file string) {
 		log.Fatal("Error during Unmarshal(): ", err)
 	}
 
-	// each section corresponds to one evernote note
+	// create a temp .enex file
 	//
+	notebook, err := os.Create("./temp.txt")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer notebook.Close()
+	writer := bufio.NewWriter(notebook)
+
 	for _, s := range payload.Sections {
 		// skip if the section has been deleted in agenda
 		//
-		if !s.MarkedDeleted {
-			for _, p := range s.Paragraphs {
-				// skip if the section has been deleted in agenda
-				//
-				if !p.MarkedDeleted {
-					// todo: parse `content`
-					// todo: parse attachment
-					// todo: identify style (body/list)
-				}
-			}
+		if s.MarkedDeleted {
+			continue
 		}
+		// each section corresponds to one evernote note
+		//
+		note(s, *writer)
+	}
+}
+
+// create an evernote note from agenda note section
+//
+func note(s Section, w bufio.Writer) {
+	var _ = s.Title
+	for _, p := range s.Paragraphs {
+		// skip if the section has been deleted in agenda
+		//
+		if s.MarkedDeleted {
+			continue
+		}
+		// parse `content`
+		//
+		var body []Content
+		err := json.Unmarshal([]byte(p.Content), &body)
+		if err != nil {
+			log.Fatal("Error during Unmarshal(): ", err)
+		}
+		// todo: parse attachment
+		// todo: identify style (body/list)
 	}
 }
