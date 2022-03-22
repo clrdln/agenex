@@ -3,9 +3,11 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 )
 
 type Agenda struct {
@@ -73,12 +75,22 @@ func run(file string) {
 
 	// create a temp .enex file
 	//
-	notebook, err := os.Create("./temp.txt")
+	notebook, err := os.Create("./temp.enex")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer notebook.Close()
-	writer := bufio.NewWriter(notebook)
+	w := bufio.NewWriter(notebook)
+
+	// use the same timestamp for all to-be-generated docs
+	//
+	const t = "20220322T162700Z"
+
+	// write xml envelope
+	//
+	fmt.Fprintln(w, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+	fmt.Fprintln(w, "<!DOCTYPE en-export SYSTEM \"http://xml.evernote.com/pub/evernote-export.dtd\">")
+	fmt.Fprintf(w, "<en-export export-date=\"%s\" application=\"Evernote\" version=\"10.33.4\">\n", t)
 
 	for _, s := range payload.Sections {
 		// skip if the section has been deleted in agenda
@@ -88,28 +100,99 @@ func run(file string) {
 		}
 		// each section corresponds to one evernote note
 		//
-		note(s, *writer)
-	}
-}
+		// write start of note & header fields
+		//
+		fmt.Fprintln(w, "<note>")
+		fmt.Fprintf(w, "<title>%s</title>\n", s.Title)
+		fmt.Fprintf(w, "<created>%s</created>\n", t)
+		fmt.Fprintln(w, "<note-attributes><author/></note-attributes>")
 
-// create an evernote note from agenda note section
-//
-func note(s Section, w bufio.Writer) {
-	var _ = s.Title
-	for _, p := range s.Paragraphs {
-		// skip if the section has been deleted in agenda
+		// .agenda paragraphs -> .enex <content>
 		//
-		if s.MarkedDeleted {
-			continue
+		fmt.Fprintln(w, "<content><![CDATA[")
+		fmt.Fprintln(w, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+		fmt.Fprintln(w, "<!DOCTYPE en-note SYSTEM \"http://xml.evernote.com/pub/enml2.dtd\">")
+		fmt.Fprintln(w, "<en-note>")
+
+		for _, p := range s.Paragraphs {
+			// skip if the section has been deleted in agenda
+			//
+			if s.MarkedDeleted {
+				continue
+			}
+
+			// parse `content`
+			//
+			var body []Content
+			err := json.Unmarshal([]byte(p.Content), &body)
+			if err != nil {
+				log.Fatal("Error during Unmarshal(): ", err)
+			}
+
+			fmt.Fprint(w, "<div>")
+
+			for _, c := range body {
+				// skip the endline too, as we already wrap each paragraph inside <div></div> element
+				//
+				if c.String == "\n" {
+					continue
+				}
+
+				// identify content attribute's style (attachment or plain text or styled text or hyperlink)
+				//
+				a := c.Attributes
+				if a.Attachment.BlobIdentifier != "" {
+					// media type:
+					// todo: use `originalFilename` to get file extension and decide on `type`
+					//
+					const _type = ""
+
+					// todo: look for the file in .agenda/Archive/Attachments dir and obtain the hash
+					// (despite field `originalFilename`, `blobIdentifier` is actually name of the file exported by agenda)
+					//
+					const hash = ""
+					// write media tag
+					//
+					fmt.Fprintf(w, "<en-media hash=\"%s\" type=\"%s\" border=\"0\" alt=\"%s\"/>", hash, _type, a.Attachment.Name)
+				} else if a.Link != "" {
+					fmt.Fprintf(w, "<a href=\"%s\">%s</a>", a.Link, c.String)
+				} else {
+					// text (plain/styled)
+					//
+					txt := strings.TrimSpace(c.String)
+					if a.Bold {
+						txt = fmt.Sprintf("<strong>%s</strong>", txt)
+					}
+					if a.Italic {
+						txt = fmt.Sprintf("<em>%s</em>", txt)
+					}
+					if a.Underline {
+						txt = fmt.Sprintf("<u>%s</u>", txt)
+					}
+					fmt.Fprintf(w, txt)
+				}
+
+				fmt.Fprintln(w, "</div>")
+			}
+
+			// todo: parse attachment
+			// todo: identify style (body/list)
 		}
-		// parse `content`
+		fmt.Fprintln(w, "</en-note>]]></content>")
+
+		// todo: <resource> list
 		//
-		var body []Content
-		err := json.Unmarshal([]byte(p.Content), &body)
-		if err != nil {
-			log.Fatal("Error during Unmarshal(): ", err)
-		}
-		// todo: parse attachment
-		// todo: identify style (body/list)
+
+		// end of note
+		//
+		fmt.Fprintln(w, "</note>")
 	}
+
+	// close xml enveloper
+	//
+	fmt.Fprint(w, "</en-export>")
+
+	// Flush any remaining content in buffer
+	//
+	w.Flush()
 }
