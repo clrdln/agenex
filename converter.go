@@ -55,6 +55,12 @@ type Attachment struct {
 	BlobIdentifier string `json:"blobIdentifier"`
 }
 
+type AttachmentLoc struct {
+	Location string
+	Name     string
+	EnexType string
+}
+
 func run(file string) {
 	// todo: extract .agenda
 	//
@@ -114,6 +120,11 @@ func run(file string) {
 		fmt.Fprintln(w, "<!DOCTYPE en-note SYSTEM \"http://xml.evernote.com/pub/enml2.dtd\">")
 		fmt.Fprintln(w, "<en-note>")
 
+		// create a map of all the attachments id to their corresponding file location
+		// so that we can write resource elements later on without duplicated steps
+		//
+		attmap := map[string]AttachmentLoc{}
+
 		for _, p := range s.Paragraphs {
 			// skip if the section has been deleted in agenda
 			//
@@ -131,6 +142,22 @@ func run(file string) {
 
 			fmt.Fprint(w, "<div>")
 
+			// collect attachment metadata into `attmap`
+			//
+			for _, a := range p.Attachments {
+
+				// todo: use `originalFilename` to get file extension and decide on .enex `type`
+				//
+				extension := ""
+				enexType := ""
+				name := fmt.Sprintf("%s.%s", a.BlobIdentifier, extension)
+				// todo: look for the file in .agenda/Archive/Attachments dir
+				// (despite field `originalFilename`, `blobIdentifier` is actually name of the file exported by agenda)
+				//
+				location := ""
+				attmap[a.BlobIdentifier] = AttachmentLoc{Location: location, Name: name, EnexType: enexType}
+			}
+
 			for _, c := range body {
 				// skip the endline too, as we already wrap each paragraph inside <div></div> element
 				//
@@ -141,19 +168,15 @@ func run(file string) {
 				// identify content attribute's style (attachment or plain text or styled text or hyperlink)
 				//
 				a := c.Attributes
-				if a.Attachment.BlobIdentifier != "" {
-					// media type:
-					// todo: use `originalFilename` to get file extension and decide on `type`
-					//
-					const _type = ""
+				if a.Attachment.BlobIdentifier != "" { // media type
 
-					// todo: look for the file in .agenda/Archive/Attachments dir and obtain the hash
-					// (despite field `originalFilename`, `blobIdentifier` is actually name of the file exported by agenda)
+					// retrieve relevant metadata from `attmap` and computing hash
 					//
+					attloc := attmap[a.Attachment.BlobIdentifier]
 					const hash = ""
 					// write media tag
 					//
-					fmt.Fprintf(w, "<en-media hash=\"%s\" type=\"%s\" border=\"0\" alt=\"%s\"/>", hash, _type, a.Attachment.Name)
+					fmt.Fprintf(w, "<en-media hash=\"%s\" type=\"%s\" border=\"0\" alt=\"%s\"/>", hash, attloc.EnexType, a.Attachment.Name)
 				} else if a.Link != "" {
 					fmt.Fprintf(w, "<a href=\"%s\">%s</a>", a.Link, c.String)
 				} else {
@@ -182,7 +205,14 @@ func run(file string) {
 
 		// todo: <resource> list
 		//
-
+		for _, v := range attmap {
+			fmt.Fprintln(w, "<resource>\n<data encoding=\"base64\">")
+			// todo: base64 encode file
+			//
+			b64 := v.Name
+			fmt.Fprintln(w, b64)
+			fmt.Fprintf(w, "</data>\n<mime>%s</mime>\n<resource-attributes><file-name>%s</file-name></resource-attributes>\n", "", "")
+		}
 		// end of note
 		//
 		fmt.Fprintln(w, "</note>")
