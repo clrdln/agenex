@@ -29,6 +29,9 @@ type Paragraph struct {
 		Body struct {
 			IndentationLevel uint `json:"indentationLevel"`
 		} `json:"body"`
+		List struct {
+			IndentationLevel uint `json:"indentationLevel"`
+		} `json:"list"`
 	} `json:"style"`
 	Priority float32 `json:"priority"`
 }
@@ -61,12 +64,24 @@ type AttachmentLoc struct {
 	EnexType string
 }
 
-func run(file string) {
+func main() {
+	// todo: retrieve source file/folder as cmd arguments
+	//
+	
+	// Run converter
+	//
+	AgendaFile := ".agenda"
+	NotebookName := "temp"
+	notebook(AgendaFile, fmt.Sprintf("%s.enex", NotebookName))
+}
+
+func notebook(agenda string, enex string) {
 	// todo: extract .agenda
 	//
+	
 	// read content from json file
 	//
-	content, err := ioutil.ReadFile(file)
+	content, err := ioutil.ReadFile("./Data.json")
 	if err != nil {
 		log.Fatal("Error when opening file: ", err)
 	}
@@ -81,7 +96,7 @@ func run(file string) {
 
 	// create a temp .enex file
 	//
-	notebook, err := os.Create("./temp.enex")
+	notebook, err := os.Create(enex)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -125,6 +140,10 @@ func run(file string) {
 		//
 		attmap := map[string]AttachmentLoc{}
 
+		// indentation level
+		//
+		InList := false
+		Indent := uint(0)
 		for _, p := range s.Paragraphs {
 			// skip if the section has been deleted in agenda
 			//
@@ -140,7 +159,31 @@ func run(file string) {
 				log.Fatal("Error during Unmarshal(): ", err)
 			}
 
-			fmt.Fprint(w, "<div>")
+			// identify style (body/list)
+			//
+			if p.Style.List.IndentationLevel != 0 {
+				// this paragraph is a list item
+				//
+				if !InList {
+					// start a new list
+					//
+					InList = true
+					Indent = p.Style.List.IndentationLevel
+					fmt.Fprint(w, "<div><ul>")
+				} else if Indent != p.Style.List.IndentationLevel {
+					// todo: multi-level list
+					//
+				}
+			} else {
+				// regular body text
+				if InList {
+					// end of list
+					//
+					fmt.Fprintf(w, "</ul></div>")
+					InList = false
+				}
+				Indent = 0
+			}
 
 			// collect attachment metadata into `attmap`
 			//
@@ -158,11 +201,19 @@ func run(file string) {
 				attmap[a.BlobIdentifier] = AttachmentLoc{Location: location, Name: name, EnexType: enexType}
 			}
 
+			if !InList {
+				fmt.Fprint(w, "<div>")
+			}
+
 			for _, c := range body {
 				// skip the endline too, as we already wrap each paragraph inside <div></div> element
 				//
 				if c.String == "\n" {
 					continue
+				}
+
+				if InList {
+					fmt.Fprint(w, "<li>")
 				}
 
 				// identify content attribute's style (attachment or plain text or styled text or hyperlink)
@@ -195,11 +246,20 @@ func run(file string) {
 					fmt.Fprintf(w, txt)
 				}
 
+				if InList {
+					fmt.Fprint(w, "</li>")
+				}
+			}
+			if !InList {
 				fmt.Fprintln(w, "</div>")
 			}
+		}
 
-			// todo: parse attachment
-			// todo: identify style (body/list)
+		if InList {
+			// end of list
+			//
+			fmt.Fprint(w, "</ul></div>")
+			InList = false
 		}
 		fmt.Fprintln(w, "</en-note>]]></content>")
 
@@ -225,4 +285,7 @@ func run(file string) {
 	// Flush any remaining content in buffer
 	//
 	w.Flush()
+	
+	// todo: Delete extracted agenda notebook dir
+	//
 }
