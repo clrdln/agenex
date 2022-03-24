@@ -1,12 +1,14 @@
 package main
 
 import (
+	"archive/zip"
 	"bufio"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -53,9 +55,10 @@ type Attribute struct {
 }
 
 type Attachment struct {
-	MarkedDeleted  bool   `json:"markedDeleted"`
-	Name           string `json:"name"`
-	BlobIdentifier string `json:"blobIdentifier"`
+	MarkedDeleted    bool   `json:"markedDeleted"`
+	Name             string `json:"name"`
+	BlobIdentifier   string `json:"blobIdentifier"`
+	OriginalFileName string `json:"originalFileName"`
 }
 
 type AttachmentLoc struct {
@@ -67,23 +70,36 @@ type AttachmentLoc struct {
 func main() {
 	// todo: retrieve source file/folder as cmd arguments
 	//
-	
+
 	// Run converter
 	//
-	AgendaFile := ".agenda"
+	AgendaFile := "/home/tania/Downloads/agenex/Sailing.agenda"
 	NotebookName := "temp"
 	notebook(AgendaFile, fmt.Sprintf("%s.enex", NotebookName))
 }
 
 func notebook(agenda string, enex string) {
-	// todo: extract .agenda
+	// open .agenda (zip archive)
 	//
-	
+	zf, err := zip.OpenReader(agenda)
+	if err != nil {
+		log.Fatal("Error reading archive: ", err)
+	}
+	defer zf.Close()
+
 	// read content from json file
 	//
-	content, err := ioutil.ReadFile("./Data.json")
+	file, err := zf.Open("Archive/Data.json")
 	if err != nil {
 		log.Fatal("Error when opening file: ", err)
+	}
+	defer file.Close()
+
+	// read the content
+	//
+	content, err := ioutil.ReadAll(file)
+	if err != nil {
+		log.Fatal("Error reading Data.json: ", err)
 	}
 
 	// unmarshall the data into `payload`
@@ -189,15 +205,40 @@ func notebook(agenda string, enex string) {
 			//
 			for _, a := range p.Attachments {
 
-				// todo: use `originalFilename` to get file extension and decide on .enex `type`
+				// use `originalFilename` to get file extension and decide on .enex `type`
 				//
-				extension := ""
-				enexType := ""
-				name := fmt.Sprintf("%s.%s", a.BlobIdentifier, extension)
-				// todo: look for the file in .agenda/Archive/Attachments dir
+				extension := filepath.Ext(a.OriginalFileName)
+
+				var enexType string
+				switch extension {
+				case ".gif":
+					enexType = "image/gif"
+				case ".jpeg":
+					enexType = "image/jpeg"
+				case ".png":
+					enexType = "image/png"
+				case ".wav":
+					enexType = "audio/wav"
+				case ".mpeg":
+					enexType = "audio/mpeg"
+				case ".amr":
+					enexType = "audio/amr"
+				case ".pdf":
+					enexType = "application/pdf"
+				case ".doc":
+					enexType = "application/msword"
+				case ".docx":
+					enexType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+				case ".pptx":
+					enexType = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+				default:
+					log.Fatalf("Extension %s not supported", extension)
+				}
+				name := fmt.Sprintf("%s%s", a.BlobIdentifier, extension)
+				// look for the file in .agenda/Archive/Attachments dir
 				// (despite field `originalFilename`, `blobIdentifier` is actually name of the file exported by agenda)
 				//
-				location := ""
+				location := fmt.Sprintf("Archive/Attachments/%s", name)
 				attmap[a.BlobIdentifier] = AttachmentLoc{Location: location, Name: name, EnexType: enexType}
 			}
 
@@ -243,7 +284,7 @@ func notebook(agenda string, enex string) {
 					if a.Underline {
 						txt = fmt.Sprintf("<u>%s</u>", txt)
 					}
-					fmt.Fprintf(w, txt)
+					fmt.Fprint(w, txt)
 				}
 
 				if InList {
@@ -269,9 +310,9 @@ func notebook(agenda string, enex string) {
 			fmt.Fprintln(w, "<resource>\n<data encoding=\"base64\">")
 			// todo: base64 encode file
 			//
-			b64 := v.Name
+			b64 := v.Location
 			fmt.Fprintln(w, b64)
-			fmt.Fprintf(w, "</data>\n<mime>%s</mime>\n<resource-attributes><file-name>%s</file-name></resource-attributes>\n", "", "")
+			fmt.Fprintf(w, "</data>\n<mime>%s</mime>\n<resource-attributes><file-name>%s</file-name></resource-attributes>\n", v.EnexType, v.Name)
 		}
 		// end of note
 		//
@@ -285,7 +326,4 @@ func notebook(agenda string, enex string) {
 	// Flush any remaining content in buffer
 	//
 	w.Flush()
-	
-	// todo: Delete extracted agenda notebook dir
-	//
 }
