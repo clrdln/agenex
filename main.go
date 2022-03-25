@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bufio"
+	"crypto/md5"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -86,6 +87,13 @@ func notebook(agenda string, enex string) {
 		log.Fatal("Error reading archive: ", err)
 	}
 	defer zf.Close()
+
+	// collect all files in the archive to make it easier for later file existence check
+	//
+	zfs := make([]string, 0, len(zf.File))
+	for _, fiz := range zf.File {
+		zfs = append(zfs, fiz.Name)
+	}
 
 	// read content from json file
 	//
@@ -265,10 +273,55 @@ func notebook(agenda string, enex string) {
 					// retrieve relevant metadata from `attmap` and computing hash
 					//
 					attloc := attmap[a.Attachment.BlobIdentifier]
-					const hash = ""
+
+					if attloc.Location == "" {
+						// strange scenario when no attachment is declared in `attachments` prop
+						// but the `content` prop still references an attachment
+						//
+						// todo: get name and mime type from this prop using the same logic
+						//
+
+						// temporarily throw an error here
+						//
+						log.Printf("No attachment with BlobIdentifier %s\n", a.Attachment.BlobIdentifier)
+						continue
+					}
+
+					// todo: check if file exists within archive
+					//
+					idx := -1
+					for i, item := range zfs {
+						if item == attloc.Location {
+							idx = i
+							break
+						}
+					}
+					if idx == -1 {
+						// find not found, print error
+						log.Printf("File %s not found in archive\n", attloc.Location)
+						continue
+					}
+					// open file within archive
+					//
+					attf, err := zf.Open(attloc.Location)
+					if err != nil {
+						log.Fatal("Error when opening file: ", err)
+					}
+					defer attf.Close()
+
+					// read the content
+					//
+					attfc, err := ioutil.ReadAll(attf)
+					if err != nil {
+						log.Fatalf("Error reading %s: %s", attloc.Location, err)
+					}
+					// compute hash
+					//
+					_md5 := fmt.Sprintf("%x", md5.Sum([]byte(attfc)))
+
 					// write media tag
 					//
-					fmt.Fprintf(w, "<en-media hash=\"%s\" type=\"%s\" border=\"0\" alt=\"%s\"/>", hash, attloc.EnexType, a.Attachment.Name)
+					fmt.Fprintf(w, "<en-media hash=\"%s\" type=\"%s\" border=\"0\" alt=\"%s\"/>", _md5, attloc.EnexType, a.Attachment.Name)
 				} else if a.Link != "" {
 					fmt.Fprintf(w, "<a href=\"%s\">%s</a>", a.Link, c.String)
 				} else {
