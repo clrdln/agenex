@@ -4,14 +4,15 @@ import (
 	"archive/zip"
 	"bufio"
 	"crypto/md5"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"mime"
 	"os"
 	"path/filepath"
 	"strings"
-    "mime"
 )
 
 type Agenda struct {
@@ -96,21 +97,38 @@ func notebook(agenda string, enex string) {
 		zfs = append(zfs, fiz.Name)
 	}
 
+	// func to check if file exists within archive
+	//
+	attExists := func(loc string) bool {
+		for _, item := range zfs {
+			if item == loc {
+				return true
+			}
+		}
+		return false
+	}
+
+	// func to read file content into []byte
+	//
+	read := func(f string) []byte {
+		file, e := zf.Open(f)
+		if e != nil {
+			log.Fatal("Error when opening file: ", e)
+		}
+		defer file.Close()
+
+		// read the content
+		//
+		fc, e := ioutil.ReadAll(file)
+		if e != nil {
+			log.Fatal("Error reading Data.json: ", e)
+		}
+		return fc
+	}
+
 	// read content from json file
 	//
-	file, err := zf.Open("Archive/Data.json")
-	if err != nil {
-		log.Fatal("Error when opening file: ", err)
-	}
-	defer file.Close()
-
-	// read the content
-	//
-	content, err := ioutil.ReadAll(file)
-	if err != nil {
-		log.Fatal("Error reading Data.json: ", err)
-	}
-
+	content := read("Archive/Data.json")
 	// unmarshall the data into `payload`
 	//
 	var payload Agenda
@@ -197,7 +215,9 @@ func notebook(agenda string, enex string) {
 					fmt.Fprint(w, "<div><ul>")
 				} else if Indent != p.Style.List.IndentationLevel {
 					// todo: multi-level list
+					// for now, leave a warning message
 					//
+					log.Println("Note contains nested list not yet supported by script. All items would be written at the same bullet level")
 				}
 			} else {
 				// regular body text
@@ -214,15 +234,15 @@ func notebook(agenda string, enex string) {
 			//
 			for _, a := range p.Attachments {
 
-				// use `originalFilename` to get file extension and decide on .enex `type`
+				// use `originalFilename` to get file extension and mime type
 				//
 				extension := filepath.Ext(a.OriginalFileName)
 
-                _mime := mime.TypeByExtension(extension)
-                fmt.Printf("Mime of %s is %s\n", extension, _mime)
-                if (_mime == "") {
-                    log.Fatalf("Mime type not defined for extension %s", extension)
-                } 
+				_mime := mime.TypeByExtension(extension)
+				if _mime == "" {
+					log.Fatalf("Mime type not defined for extension %s", extension)
+				}
+
 				name := fmt.Sprintf("%s%s", a.BlobIdentifier, extension)
 				// look for the file in .agenda/Archive/Attachments dir
 				// (despite field `originalFilename`, `blobIdentifier` is actually name of the file exported by agenda)
@@ -259,46 +279,28 @@ func notebook(agenda string, enex string) {
 						// strange scenario when no attachment is declared in `attachments` prop
 						// but the `content` prop still references an attachment
 						//
-						// todo: get name and mime type from this prop using the same logic
-						//
-
 						// temporarily throw an error here
+						//
+						// todo: collect these into a .txt file
 						//
 						log.Printf("No attachment with BlobIdentifier %s\n", a.Attachment.BlobIdentifier)
 						continue
 					}
 
-					// todo: check if file exists within archive
+					// check if file exists within archive
 					//
-					idx := -1
-					for i, item := range zfs {
-						if item == attloc.Location {
-							idx = i
-							break
-						}
-					}
-					if idx == -1 {
+					if !attExists(attloc.Location) {
 						// find not found, print error
 						log.Printf("File %s not found in archive\n", attloc.Location)
 						continue
 					}
-					// open file within archive
-					//
-					attf, err := zf.Open(attloc.Location)
-					if err != nil {
-						log.Fatal("Error when opening file: ", err)
-					}
-					defer attf.Close()
-
 					// read the content
 					//
-					attfc, err := ioutil.ReadAll(attf)
-					if err != nil {
-						log.Fatalf("Error reading %s: %s", attloc.Location, err)
-					}
+					attfc := read(attloc.Location)
+
 					// compute hash
 					//
-					_md5 := fmt.Sprintf("%x", md5.Sum([]byte(attfc)))
+					_md5 := fmt.Sprintf("%x", md5.Sum(attfc))
 
 					// write media tag
 					//
@@ -338,15 +340,30 @@ func notebook(agenda string, enex string) {
 		}
 		fmt.Fprintln(w, "</en-note>]]></content>")
 
-		// todo: <resource> list
+		// write <resource> elements for all attachments in `attmap`
 		//
 		for _, v := range attmap {
-			fmt.Fprintln(w, "<resource>\n<data encoding=\"base64\">")
-			// todo: base64 encode file
+			// first, check if this file exists within archive attachment folder
 			//
-			b64 := v.Location
+			if !attExists(v.Location) {
+				// skip this file without any error message, as it should have been reported
+				// during previous steps
+				//
+				continue
+			}
+			fmt.Fprintln(w, "<resource>\n<data encoding=\"base64\">")
+
+			// base64 encode file
+			//
+			fc := read(v.Location)
+			b64 := base64.StdEncoding.EncodeToString(fc)
 			fmt.Fprintln(w, b64)
-			fmt.Fprintf(w, "</data>\n<mime>%s</mime>\n<resource-attributes><file-name>%s</file-name></resource-attributes>\n", v.EnexType, v.Name)
+
+			fmt.Fprintln(w, "</data>")
+			fmt.Fprintf(w, "<mime>%s</mime>\n", v.EnexType)
+			fmt.Fprintln(w, "<resource-attributes>")
+			fmt.Fprintf(w, "<file-name>%s</file-name>\n", v.Name)
+			fmt.Fprintln(w, "</resource-attributes>")
 		}
 		// end of note
 		//
