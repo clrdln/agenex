@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+    "mime"
 )
 
 type Agenda struct {
@@ -217,37 +218,17 @@ func notebook(agenda string, enex string) {
 				//
 				extension := filepath.Ext(a.OriginalFileName)
 
-				var enexType string
-				switch extension {
-				case ".gif":
-					enexType = "image/gif"
-				case ".jpeg":
-					enexType = "image/jpeg"
-				case ".png":
-					enexType = "image/png"
-				case ".wav":
-					enexType = "audio/wav"
-				case ".mpeg":
-					enexType = "audio/mpeg"
-				case ".amr":
-					enexType = "audio/amr"
-				case ".pdf":
-					enexType = "application/pdf"
-				case ".doc":
-					enexType = "application/msword"
-				case ".docx":
-					enexType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-				case ".pptx":
-					enexType = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-				default:
-					log.Fatalf("Extension %s not supported", extension)
-				}
+                _mime := mime.TypeByExtension(extension)
+                fmt.Printf("Mime of %s is %s\n", extension, _mime)
+                if (_mime == "") {
+                    log.Fatalf("Mime type not defined for extension %s", extension)
+                } 
 				name := fmt.Sprintf("%s%s", a.BlobIdentifier, extension)
 				// look for the file in .agenda/Archive/Attachments dir
 				// (despite field `originalFilename`, `blobIdentifier` is actually name of the file exported by agenda)
 				//
 				location := fmt.Sprintf("Archive/Attachments/%s", name)
-				attmap[a.BlobIdentifier] = AttachmentLoc{Location: location, Name: name, EnexType: enexType}
+				attmap[a.BlobIdentifier] = AttachmentLoc{Location: location, Name: name, EnexType: _mime}
 			}
 
 			if !InList {
