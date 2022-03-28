@@ -71,14 +71,84 @@ type AttachmentLoc struct {
 }
 
 func main() {
-	// todo: retrieve source file/folder as cmd arguments
+	// retrieve source file/folder as cmd arguments
 	//
+	_i := "."
+	_o := "."
+	_iIsDir := true
+	argLen := len(os.Args[1:])
+
+	fExist := func(path string) (os.FileInfo, string) {
+		if stat, err := os.Stat(path); err == nil {
+			return stat, ""
+		} else if os.IsNotExist(err) {
+			return nil, "File does not exists"
+		} else {
+			return nil, fmt.Sprintf("Error: %s", err)
+		}
+	}
+
+	if argLen > 0 {
+		stat, err := fExist(os.Args[1])
+		if stat != nil {
+			_i = os.Args[1]
+			_iIsDir = stat.IsDir()
+		} else {
+			log.Fatal(err)
+		}
+	}
+	if argLen > 1 {
+		stat, err := fExist(os.Args[1])
+		if stat != nil {
+			if stat.IsDir() {
+				_o = os.Args[1]
+			} else {
+				log.Fatalf("Output path %s is not a directory", os.Args[1])
+			}
+		} else {
+			log.Fatal(err)
+		}
+
+	}
+	if _iIsDir {
+		log.Printf("Will look for .agenda files in %s\n", _i)
+	} else {
+		log.Printf("Agenda file to be processed: %s", _i)
+	}
+	log.Printf("Enex files would be created in %s\n", _o)
+
+	// Func to convert a single .agenda file to .enex
+	//
+	snb := func(agenda string) string {
+		notebookName := strings.TrimSuffix(filepath.Base(agenda), filepath.Ext(agenda))
+		enex := filepath.Join(_o, fmt.Sprintf("%s.enex", notebookName))
+		notebook(agenda, enex)
+		return enex
+	}
 
 	// Run converter
 	//
-	AgendaFile := "/home/tania/Downloads/agenex/Sailing.agenda"
-	NotebookName := "temp"
-	notebook(AgendaFile, fmt.Sprintf("%s.enex", NotebookName))
+	if _iIsDir {
+		// walk through all files in directory and convert each .agenda to .enex
+		//
+		err := filepath.Walk(_i, func(path string, _ os.FileInfo, err error) error {
+			if err != nil {
+				fmt.Println(err)
+				return err
+			}
+			if filepath.Ext(path) == ".agenda" {
+				log.Printf("Process file %s\n", path)
+				nbn := snb(path)
+				log.Printf("%s converted to %s", path, nbn)
+			}
+			return nil
+		})
+		if err != nil {
+			fmt.Println(err)
+		}
+	} else {
+		snb(_i)
+	}
 }
 
 func notebook(agenda string, enex string) {
