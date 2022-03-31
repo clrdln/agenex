@@ -99,12 +99,12 @@ func main() {
 		}
 	}
 	if argLen > 1 {
-		stat, err := fExist(os.Args[1])
+		stat, err := fExist(os.Args[2])
 		if stat != nil {
 			if stat.IsDir() {
-				_o = os.Args[1]
+				_o = os.Args[2]
 			} else {
-				log.Fatalf("Output path %s is not a directory", os.Args[1])
+				log.Fatalf("Output path %s is not a directory", os.Args[2])
 			}
 		} else {
 			log.Fatal(err)
@@ -220,7 +220,7 @@ func notebook(agenda string, enex string) {
 	// use the same timestamp for all to-be-generated docs
 	//
 	_now := time.Now().UTC()
-	t := fmt.Sprintf("%d%d%dT%d%d%dZ", _now.Year(), _now.Month(), _now.Day(), _now.Hour(), _now.Minute(), _now.Second())
+	t := fmt.Sprintf("%d%s%sT%s%s%sZ", _now.Year(), fmt.Sprintf("%02d", _now.Month()), fmt.Sprintf("%02d", _now.Day()), fmt.Sprintf("%02d", _now.Hour()), fmt.Sprintf("%02d", _now.Minute()), "00")
 
 	// write xml envelope
 	//
@@ -439,7 +439,7 @@ func notebook(agenda string, enex string) {
 			fmt.Fprintf(w, "<mime>%s</mime>\n", v.EnexType)
 			fmt.Fprintln(w, "<resource-attributes>")
 			fmt.Fprintf(w, "<file-name>%s</file-name>\n", v.Name)
-			fmt.Fprintln(w, "</resource-attributes>")
+			fmt.Fprintln(w, "</resource-attributes></resource>")
 		}
 		// end of note
 		//
