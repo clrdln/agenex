@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type Agenda struct {
@@ -218,7 +219,8 @@ func notebook(agenda string, enex string) {
 
 	// use the same timestamp for all to-be-generated docs
 	//
-	const t = "20220322T162700Z"
+	_now := time.Now().UTC()
+	t := fmt.Sprintf("%d%d%dT%d%d%dZ", _now.Year(), _now.Month(), _now.Day(), _now.Hour(), _now.Minute(), _now.Second())
 
 	// write xml envelope
 	//
@@ -376,6 +378,10 @@ func notebook(agenda string, enex string) {
 					//
 					fmt.Fprintf(w, "<en-media hash=\"%s\" type=\"%s\" border=\"0\" alt=\"%s\"/>", _md5, attloc.EnexType, a.Attachment.Name)
 				} else if a.Link != "" {
+					// todo: link to other agenda note/notebook
+					// example:
+					// href="agenda://note/450410F4-1206-44D6-88CD-3FB1AB2708BD"
+					//
 					fmt.Fprintf(w, "<a href=\"%s\">%s</a>", a.Link, c.String)
 				} else {
 					// text (plain/styled)
