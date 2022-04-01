@@ -325,6 +325,8 @@ func notebook(agenda string, enex string) {
 
 			if !InList {
 				fmt.Fprint(w, "<div>")
+			} else {
+				fmt.Fprint(w, "<li>")
 			}
 
 			for _, c := range body {
@@ -333,11 +335,6 @@ func notebook(agenda string, enex string) {
 				if c.String == "\n" {
 					continue
 				}
-
-				if InList {
-					fmt.Fprint(w, "<li>")
-				}
-
 				// identify content attribute's style (attachment or plain text or styled text or hyperlink)
 				//
 				a := c.Attributes
@@ -355,7 +352,7 @@ func notebook(agenda string, enex string) {
 						//
 						// todo: collect these into a .txt file
 						//
-						log.Printf("No attachment with BlobIdentifier %s\n", a.Attachment.BlobIdentifier)
+						log.Printf("Notebook [%s], note [%s], Err: No attachment with BlobIdentifier %s\n", agenda, s.Title, a.Attachment.BlobIdentifier)
 						continue
 					}
 
@@ -386,7 +383,7 @@ func notebook(agenda string, enex string) {
 				} else {
 					// text (plain/styled)
 					//
-					txt := strings.TrimSpace(c.String)
+					txt := c.String
 					if a.Bold {
 						txt = fmt.Sprintf("<strong>%s</strong>", txt)
 					}
@@ -398,13 +395,14 @@ func notebook(agenda string, enex string) {
 					}
 					fmt.Fprint(w, txt)
 				}
-
-				if InList {
-					fmt.Fprint(w, "</li>")
-				}
 			}
 			if !InList {
 				fmt.Fprintln(w, "</div>")
+				// leave out a space between the paragraphs
+				//
+				fmt.Fprintln(w, "<div><br/></div>")
+			} else {
+				fmt.Fprint(w, "</li>")
 			}
 		}
 
