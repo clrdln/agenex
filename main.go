@@ -118,17 +118,28 @@ func main() {
 	}
 	log.Printf("Enex files would be created in %s\n", _o)
 
+	// create report file
+	//
+	report, err := os.Create("./report.txt")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer report.Close()
+	r := bufio.NewWriter(report)
+	defer r.Flush()
+
 	// Func to convert a single .agenda file to .enex
 	//
-	snb := func(agenda string) string {
+	snb := func(agenda string) {
 		notebookName := strings.TrimSuffix(filepath.Base(agenda), filepath.Ext(agenda))
 		enex := filepath.Join(_o, fmt.Sprintf("%s.enex", notebookName))
-		notebook(agenda, enex)
-		return enex
+		notebook(agenda, enex, r)
+		fmt.Printf("|\033[32m%-50s\033[0m|\033[34m%-50s\033[0m|\n", agenda, enex)
 	}
 
 	// Run converter
 	//
+	total := 0
 	if _iIsDir {
 		// walk through all files in directory and convert each .agenda to .enex
 		//
@@ -138,9 +149,8 @@ func main() {
 				return err
 			}
 			if filepath.Ext(path) == ".agenda" {
-				log.Printf("Process file %s\n", path)
-				nbn := snb(path)
-				log.Printf("%s converted to %s", path, nbn)
+				snb(path)
+				total++
 			}
 			return nil
 		})
@@ -148,11 +158,14 @@ func main() {
 			fmt.Println(err)
 		}
 	} else {
+		total++
 		snb(_i)
 	}
+	log.Printf("Conversion completed for [%d] agenda files. See report.txt for errors\n", total)
 }
 
-func notebook(agenda string, enex string) {
+func notebook(agenda string, enex string, r *bufio.Writer) {
+
 	// open .agenda (zip archive)
 	//
 	zf, err := zip.OpenReader(agenda)
@@ -352,7 +365,7 @@ func notebook(agenda string, enex string) {
 						//
 						// todo: collect these into a .txt file
 						//
-						log.Printf("Notebook [%s], note [%s], Err: No attachment with BlobIdentifier %s\n", agenda, s.Title, a.Attachment.BlobIdentifier)
+						fmt.Fprintf(r, "Notebook [%s], note [%s], Err: No attachment with BlobIdentifier %s\n", agenda, s.Title, a.Attachment.BlobIdentifier)
 						continue
 					}
 
@@ -360,7 +373,7 @@ func notebook(agenda string, enex string) {
 					//
 					if !attExists(attloc.Location) {
 						// find not found, print error
-						log.Printf("File %s not found in archive\n", attloc.Location)
+						fmt.Fprintf(r, "Notebook [%s], note [%s], Err: File %s not found in archive\n", agenda, s.Title, attloc.Location)
 						continue
 					}
 					// read the content
