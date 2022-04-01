@@ -302,7 +302,7 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 					// todo: multi-level list
 					// for now, leave a warning message
 					//
-					log.Println("Note contains nested list not yet supported by script. All items would be written at the same bullet level")
+					fmt.Fprintf(r, "Notebook [%s] Note [%s] contains nested list not yet supported by script. All items would be written at the same bullet level\n", agenda, s.Title)
 				}
 			} else {
 				// regular body text
