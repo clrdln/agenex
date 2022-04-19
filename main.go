@@ -27,11 +27,12 @@ type Section struct {
 }
 
 type Paragraph struct {
-	Content       string       `json:"content"`
-	MarkedDeleted bool         `json:"markedDeleted"`
-	Attachments   []Attachment `json:"attachments"`
-	Tags          []string     `json:"tags"`
-	Style         struct {
+	Content         string           `json:"content"`
+	MarkedDeleted   bool             `json:"markedDeleted"`
+	Attachments     []Attachment     `json:"attachments"`
+	EmbeddedObjects []EmbeddedObject `json:"embeddedObjects"`
+	Tags            []string         `json:"tags"`
+	Style           struct {
 		Body struct {
 			IndentationLevel uint `json:"indentationLevel"`
 		} `json:"body"`
@@ -52,10 +53,25 @@ type Attribute struct {
 		BlobIdentifier string `json:"blobIdentifier"`
 		Name           string `json:"name"`
 	} `json:"attachment"`
-	Link      string `json:"link"`
-	Bold      bool   `json:"bold"`
-	Italic    bool   `json:"italic"`
-	Underline bool   `json:"underline"`
+	EmbeddedObjectIdentifier string `json:"embeddedObjectIdentifier"`
+	Link                     string `json:"link"`
+	Bold                     bool   `json:"bold"`
+	Italic                   bool   `json:"italic"`
+	Underline                bool   `json:"underline"`
+}
+
+type EmbeddedObject struct {
+	MarkDeleted    bool `json:"markedDeleted"`
+	InfoProperties struct {
+		OriginalFileName string `json:"originalFileName"`
+		Name             string `json:"name"`
+		TextValue        string `json:"textValue"`
+		BlobIdentifier   string `json:"blobIdentifier"`
+		Url              string `json:"url"`
+	}
+	Identifier      string `json:"identifier"`
+	StoreIdentifier string `json:"storeIdentifier"`
+	Type            uint   `json:"type"`
 }
 
 type Attachment struct {
@@ -65,10 +81,13 @@ type Attachment struct {
 	OriginalFileName string `json:"originalFileName"`
 }
 
-type AttachmentLoc struct {
-	Location string
-	Name     string
-	EnexType string
+// Store info of embedded contents during processing
+//
+type ContentEmbedded struct {
+	ContentType string // A: attachment, H: hyperlink
+	Name        string // attachment name or hyperlink's displayed text
+	Location    string // file location for attachment, href for hyperlink
+	EnexType    string // mime type
 }
 
 func main() {
@@ -266,7 +285,7 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 		// create a map of all the attachments id to their corresponding file location
 		// so that we can write resource elements later on without duplicated steps
 		//
-		attmap := map[string]AttachmentLoc{}
+		attmap := map[string]ContentEmbedded{}
 
 		// indentation level
 		//
@@ -333,7 +352,39 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 				// (despite field `originalFilename`, `blobIdentifier` is actually name of the file exported by agenda)
 				//
 				location := fmt.Sprintf("Archive/Attachments/%s", name)
-				attmap[a.BlobIdentifier] = AttachmentLoc{Location: location, Name: name, EnexType: _mime}
+				attmap[a.BlobIdentifier] = ContentEmbedded{ContentType: "A", Location: location, Name: a.OriginalFileName, EnexType: _mime}
+			}
+			// collect embedded objects into `attmap`
+			//
+			for _, a := range p.EmbeddedObjects {
+
+				if a.Type == 7 {
+
+					// use `originalFilename` to get file extension and mime type
+					//
+					extension := filepath.Ext(a.InfoProperties.OriginalFileName)
+
+					_mime := mime.TypeByExtension(extension)
+					if _mime == "" {
+						log.Fatalf("Mime type not defined for extension %s", extension)
+					}
+
+					blobId := a.InfoProperties.BlobIdentifier
+
+					name := fmt.Sprintf("%s%s", blobId, extension)
+
+					// look for the file in .agenda/Archive/Attachments/<StoreIdentifier> dir
+					// (despite field `originalFilename`, `blobIdentifier` is actually name of the file exported by agenda)
+					//
+					location := fmt.Sprintf("Archive/Attachments/%s/%s", a.StoreIdentifier, name)
+					attmap[a.Identifier] = ContentEmbedded{ContentType: "A", Location: location, Name: a.InfoProperties.OriginalFileName, EnexType: _mime}
+
+				} else if a.Type == 5 {
+					// hyperlink
+					//
+					attmap[a.Identifier] = ContentEmbedded{ContentType: "H", Location: a.InfoProperties.Url, Name: a.InfoProperties.TextValue, EnexType: ""}
+				}
+
 			}
 
 			if !InList {
@@ -351,21 +402,32 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 				// identify content attribute's style (attachment or plain text or styled text or hyperlink)
 				//
 				a := c.Attributes
-				if a.Attachment.BlobIdentifier != "" { // media type
+				if a.Attachment.BlobIdentifier != "" || a.EmbeddedObjectIdentifier != "" { // media type
 
 					// retrieve relevant metadata from `attmap` and computing hash
 					//
-					attloc := attmap[a.Attachment.BlobIdentifier]
+					var attloc ContentEmbedded
+					if a.Attachment.BlobIdentifier != "" {
+						attloc = attmap[a.Attachment.BlobIdentifier]
+					} else {
+						attloc = attmap[a.EmbeddedObjectIdentifier]
+					}
 
-					if attloc.Location == "" {
-						// strange scenario when no attachment is declared in `attachments` prop
-						// but the `content` prop still references an attachment
+					if attloc.ContentType == "" {
+						// strange scenario when no object is declared in `attachments` or `embeddedObjects` prop
+						// but the `content` prop still references an attachment or embedded object
 						//
-						// temporarily throw an error here
+						// collect these into report.txt file
 						//
-						// todo: collect these into a .txt file
-						//
-						fmt.Fprintf(r, "Notebook [%s], note [%s], Err: No attachment with BlobIdentifier %s\n", agenda, s.Title, a.Attachment.BlobIdentifier)
+						fmt.Fprintf(r, "Notebook [%s], note [%s], Err: No object with BlobIdentifier %s\n", agenda, s.Title, a.Attachment.BlobIdentifier)
+						continue
+					}
+
+					// Hyperlinks
+					//
+					if attloc.ContentType == "H" {
+						fmt.Fprintf(w, "<a href=\"%s\">%s</a>", attloc.Location, attloc.Name)
+						fmt.Fprint(w, "<br/>")
 						continue
 					}
 
@@ -386,7 +448,7 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 
 					// write media tag
 					//
-					fmt.Fprintf(w, "<en-media hash=\"%s\" type=\"%s\" border=\"0\" alt=\"%s\"/>", _md5, attloc.EnexType, a.Attachment.Name)
+					fmt.Fprintf(w, "<en-media hash=\"%s\" type=\"%s\" border=\"0\" alt=\"%s\"/>", _md5, attloc.EnexType, attloc.Name)
 				} else if a.Link != "" {
 					// todo: link to other agenda note/notebook
 					// example:
@@ -396,17 +458,25 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 				} else {
 					// text (plain/styled)
 					//
-					txt := c.String
-					if a.Bold {
-						txt = fmt.Sprintf("<strong>%s</strong>", txt)
+					txt := strings.TrimRight(c.String, "\n")
+					if txt != "" {
+						if a.Bold {
+							txt = fmt.Sprintf("<strong>%s</strong>", txt)
+						}
+						if a.Italic {
+							txt = fmt.Sprintf("<em>%s</em>", txt)
+						}
+						if a.Underline {
+							txt = fmt.Sprintf("<u>%s</u>", txt)
+						}
+						fmt.Fprint(w, txt)
+
+						// in case there's a line break in agenda note
+						//
+						if strings.HasSuffix(c.String, "\n") {
+							fmt.Fprint(w, "<br/>")
+						}
 					}
-					if a.Italic {
-						txt = fmt.Sprintf("<em>%s</em>", txt)
-					}
-					if a.Underline {
-						txt = fmt.Sprintf("<u>%s</u>", txt)
-					}
-					fmt.Fprint(w, txt)
 				}
 			}
 			if !InList {
@@ -432,6 +502,9 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 		for _, v := range attmap {
 			// first, check if this file exists within archive attachment folder
 			//
+			if v.ContentType != "A" {
+				continue
+			}
 			if !attExists(v.Location) {
 				// skip this file without any error message, as it should have been reported
 				// during previous steps
