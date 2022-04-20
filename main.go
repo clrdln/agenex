@@ -34,14 +34,14 @@ type Paragraph struct {
 	EmbeddedObjects []EmbeddedObject `json:"embeddedObjects"`
 	Tags            []string         `json:"tags"`
 	Style           struct {
-		Body struct {
-			IndentationLevel uint `json:"indentationLevel"`
-		} `json:"body"`
-		List struct {
-			IndentationLevel uint `json:"indentationLevel"`
-		} `json:"list"`
+		Body *ParagraphStyle `json:"body"`
+		List *ParagraphStyle `json:"list"`
 	} `json:"style"`
 	Priority float32 `json:"priority"`
+}
+
+type ParagraphStyle struct {
+	IndentationLevel uint `json:"indentationLevel"`
 }
 
 type Content struct {
@@ -309,7 +309,7 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 
 			// identify style (body/list)
 			//
-			if p.Style.List.IndentationLevel != 0 {
+			if p.Style.List != nil {
 				// this paragraph is a list item
 				//
 				if !InList {
@@ -330,6 +330,7 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 					// end of list
 					//
 					fmt.Fprintf(w, "</ul></div>")
+					fmt.Fprintln(w, "<div><br/></div>")
 					InList = false
 				}
 				Indent = 0
@@ -475,7 +476,7 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 
 						// in case there's a line break in agenda note
 						//
-						if strings.HasSuffix(c.String, "\n") {
+						if strings.HasSuffix(c.String, "\n") && !InList {
 							fmt.Fprint(w, "<br/>")
 						}
 					}
