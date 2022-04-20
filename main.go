@@ -429,7 +429,7 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 					//
 					if attloc.ContentType == "H" {
 						fmt.Fprintf(w, "<a href=\"%s\">%s</a>", html.EscapeString(attloc.Location), html.EscapeString(attloc.Name))
-						fmt.Fprint(w, "<br/>")
+						fmt.Fprint(w, "<br/><br/>")
 						continue
 					}
 
@@ -456,7 +456,7 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 					// example:
 					// href="agenda://note/450410F4-1206-44D6-88CD-3FB1AB2708BD"
 					//
-					fmt.Fprintf(w, "<a href=\"%s\">%s</a><br/>", html.EscapeString(a.Link), html.EscapeString(c.String))
+					fmt.Fprintf(w, "<a href=\"%s\">%s</a><br/><br/>", html.EscapeString(a.Link), html.EscapeString(c.String))
 				} else {
 					// text (plain/styled)
 					//
