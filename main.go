@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io/ioutil"
 	"log"
 	"mime"
@@ -271,7 +272,7 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 		// write start of note & header fields
 		//
 		fmt.Fprintln(w, "<note>")
-		fmt.Fprintf(w, "<title>%s</title>\n", s.Title)
+		fmt.Fprintf(w, "<title>%s</title>\n", html.EscapeString(s.Title))
 		fmt.Fprintf(w, "<created>%s</created>\n", t)
 		fmt.Fprintln(w, "<note-attributes><author/></note-attributes>")
 
@@ -352,7 +353,7 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 				// (despite field `originalFilename`, `blobIdentifier` is actually name of the file exported by agenda)
 				//
 				location := fmt.Sprintf("Archive/Attachments/%s", name)
-				attmap[a.BlobIdentifier] = ContentEmbedded{ContentType: "A", Location: location, Name: a.OriginalFileName, EnexType: _mime}
+				attmap[a.BlobIdentifier] = ContentEmbedded{ContentType: "A", Location: location, Name: name, EnexType: _mime}
 			}
 			// collect embedded objects into `attmap`
 			//
@@ -377,7 +378,7 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 					// (despite field `originalFilename`, `blobIdentifier` is actually name of the file exported by agenda)
 					//
 					location := fmt.Sprintf("Archive/Attachments/%s/%s", a.StoreIdentifier, name)
-					attmap[a.Identifier] = ContentEmbedded{ContentType: "A", Location: location, Name: a.InfoProperties.OriginalFileName, EnexType: _mime}
+					attmap[a.Identifier] = ContentEmbedded{ContentType: "A", Location: location, Name: name, EnexType: _mime}
 
 				} else if a.Type == 5 {
 					// hyperlink
@@ -426,7 +427,7 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 					// Hyperlinks
 					//
 					if attloc.ContentType == "H" {
-						fmt.Fprintf(w, "<a href=\"%s\">%s</a>", attloc.Location, attloc.Name)
+						fmt.Fprintf(w, "<a href=\"%s\">%s</a>", html.EscapeString(attloc.Location), html.EscapeString(attloc.Name))
 						fmt.Fprint(w, "<br/>")
 						continue
 					}
@@ -448,18 +449,19 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 
 					// write media tag
 					//
-					fmt.Fprintf(w, "<en-media hash=\"%s\" type=\"%s\" border=\"0\" alt=\"%s\"/>", _md5, attloc.EnexType, attloc.Name)
+					fmt.Fprintf(w, "<en-media hash=\"%s\" type=\"%s\" border=\"0\" alt=\"%s\"/>", _md5, attloc.EnexType, html.EscapeString(attloc.Name))
 				} else if a.Link != "" {
 					// todo: link to other agenda note/notebook
 					// example:
 					// href="agenda://note/450410F4-1206-44D6-88CD-3FB1AB2708BD"
 					//
-					fmt.Fprintf(w, "<a href=\"%s\">%s</a>", a.Link, c.String)
+					fmt.Fprintf(w, "<a href=\"%s\">%s</a><br/>", html.EscapeString(a.Link), html.EscapeString(c.String))
 				} else {
 					// text (plain/styled)
 					//
 					txt := strings.TrimRight(c.String, "\n")
 					if txt != "" {
+						txt = html.EscapeString(txt)
 						if a.Bold {
 							txt = fmt.Sprintf("<strong>%s</strong>", txt)
 						}
