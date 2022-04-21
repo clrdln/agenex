@@ -42,6 +42,7 @@ type Paragraph struct {
 
 type ParagraphStyle struct {
 	IndentationLevel uint `json:"indentationLevel"`
+	Style            uint `json:"style"`
 }
 
 type Content struct {
@@ -288,10 +289,13 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 		//
 		attmap := map[string]ContentEmbedded{}
 
-		// indentation level
+		// list item checks
 		//
 		InList := false
-		Indent := uint(0)
+		Indent := uint(0)           // indent level specified in agenda .json (related to styling)
+		Level := uint(0)            // list item level (in case of nested list), starting from 1 (0 means `not list item`)
+		LStyle := map[uint]string{} // List type (ordered or unordered), o: ordered, u: unordered
+
 		for _, p := range s.Paragraphs {
 			// skip if the section has been deleted in agenda
 			//
@@ -317,23 +321,54 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 					//
 					InList = true
 					Indent = p.Style.List.IndentationLevel
-					fmt.Fprint(w, "<div><ul>")
+					for k := range LStyle {
+						delete(LStyle, k)
+					}
+					Level = 1
+					if p.Style.List.Style != 0 {
+						LStyle[Level] = "ol"
+					} else {
+						LStyle[Level] = "ul"
+					}
+					fmt.Fprintf(w, "<div><%s>", LStyle[Level])
 				} else if Indent != p.Style.List.IndentationLevel {
-					// todo: multi-level list
-					// for now, leave a warning message
+					// nested list
 					//
-					fmt.Fprintf(r, "Notebook [%s] Note [%s] contains nested list not yet supported by script. All items would be written at the same bullet level\n", agenda, s.Title)
+					if Indent > p.Style.List.IndentationLevel {
+						if Level > 2 {
+							fmt.Fprintf(w, "</%s>", LStyle[Level])
+							Level -= 1
+						}
+					} else {
+						Level += 1
+						if p.Style.List.Style != 0 {
+							LStyle[Level] = "ol"
+						} else {
+							LStyle[Level] = "ul"
+						}
+						Indent = p.Style.List.IndentationLevel
+						fmt.Fprintf(w, "<%s>", LStyle[Level])
+					}
 				}
 			} else {
 				// regular body text
+				//
 				if InList {
 					// end of list
 					//
-					fmt.Fprintf(w, "</ul></div>")
+					for Level > 0 {
+						fmt.Fprintf(w, "</%s>", LStyle[Level])
+						Level -= 1
+					}
+					fmt.Fprint(w, "</div>")
 					fmt.Fprintln(w, "<div><br/></div>")
-					InList = false
 				}
+				InList = false
 				Indent = 0
+				Level = 0
+				for k := range LStyle {
+					delete(LStyle, k)
+				}
 			}
 
 			// collect attachment metadata into `attmap`
@@ -494,9 +529,18 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 
 		if InList {
 			// end of list
-			//
-			fmt.Fprint(w, "</ul></div>")
+			// close all the remaining <ol> and <ul> tags
+			for Level > 0 {
+				fmt.Fprintf(w, "</%s>", LStyle[Level])
+				Level -= 1
+			}
+			fmt.Fprint(w, "</div>")
 			InList = false
+			Indent = 0
+			Level = 0
+			for k := range LStyle {
+				delete(LStyle, k)
+			}
 		}
 		fmt.Fprintln(w, "</en-note>]]></content>")
 
