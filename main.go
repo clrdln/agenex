@@ -68,6 +68,7 @@ type EmbeddedObject struct {
 		OriginalFileName string `json:"originalFileName"`
 		Name             string `json:"name"`
 		TextValue        string `json:"textValue"`
+		Description      string `json:"description"`
 		BlobIdentifier   string `json:"blobIdentifier"`
 		Url              string `json:"url"`
 	}
@@ -419,7 +420,9 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 				} else if a.Type == 5 {
 					// hyperlink
 					//
-					attmap[a.Identifier] = ContentEmbedded{ContentType: "H", Location: a.InfoProperties.Url, Name: a.InfoProperties.TextValue, EnexType: ""}
+					attmap[a.Identifier] = ContentEmbedded{ContentType: "H", Location: a.InfoProperties.Url, Name: a.InfoProperties.Description, EnexType: ""}
+				} else {
+					log.Fatalf("EmbededObject Type %d not yet supported", a.Type)
 				}
 
 			}
@@ -463,7 +466,20 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 					// Hyperlinks
 					//
 					if attloc.ContentType == "H" {
-						fmt.Fprintf(w, "<a href=\"%s\">%s</a>", html.EscapeString(attloc.Location), html.EscapeString(attloc.Name))
+						// use text of current body element
+						//
+						HrefText := html.EscapeString(strings.TrimRight(c.String, "\n"))
+						// if the text is blank, use description of the embeded object
+						//
+						if HrefText == "" {
+							HrefText = html.EscapeString(attloc.Name)
+						}
+						// if it's still blank, just put a placeholder for the url
+						//
+						if HrefText == "" {
+							HrefText = "Link"
+						}
+						fmt.Fprintf(w, "<a href=\"%s\">%s</a>", html.EscapeString(attloc.Location), HrefText)
 						fmt.Fprint(w, "<br/><br/>")
 						continue
 					}

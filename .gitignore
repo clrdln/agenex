@@ -33,3 +33,7 @@ go.work
 .idea/
 
 # End of https://www.toptal.com/developers/gitignore/api/go
+
+# build & local folders
+bin/*
+.local/*
