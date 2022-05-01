@@ -12,6 +12,7 @@ import (
 	"log"
 	"mime"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -138,17 +139,20 @@ func main() {
 	} else {
 		log.Printf("Agenda file to be processed: %s", _i)
 	}
+
 	log.Printf("Enex files would be created in %s\n", _o)
 
 	// create report file
 	//
-	report, err := os.Create("./report.csv")
+	rf := "report.csv"
+	report, err := os.Create(path.Join(_o, rf))
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer report.Close()
 	r := bufio.NewWriter(report)
 	defer r.Flush()
+	log.Printf("Report file report.csv created in %s\n", _o)
 
 	// write report header
 	//
@@ -187,7 +191,7 @@ func main() {
 		total++
 		snb(_i)
 	}
-	log.Printf("Conversion completed for [%d] agenda files. See report.txt for errors\n", total)
+	log.Printf("Conversion completed for [%d] agenda files. See %s for errors\n", total, rf)
 }
 
 func notebook(agenda string, enex string, r *bufio.Writer) {
