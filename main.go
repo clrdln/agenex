@@ -67,10 +67,10 @@ type EmbeddedObject struct {
 	InfoProperties struct {
 		OriginalFileName string `json:"originalFileName"`
 		Name             string `json:"name"`
-		TextValue        string `json:"textValue"`
-		Description      string `json:"description"`
-		BlobIdentifier   string `json:"blobIdentifier"`
-		Url              string `json:"url"`
+		//TextValue        string `json:"textValue"`
+		//Description      string `json:"description"`
+		BlobIdentifier string `json:"blobIdentifier"`
+		Url            string `json:"url"`
 	}
 	Identifier      string `json:"identifier"`
 	StoreIdentifier string `json:"storeIdentifier"`
@@ -142,13 +142,17 @@ func main() {
 
 	// create report file
 	//
-	report, err := os.Create("./report.txt")
+	report, err := os.Create("./report.csv")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer report.Close()
 	r := bufio.NewWriter(report)
 	defer r.Flush()
+
+	// write report header
+	//
+	fmt.Fprintln(r, "Notebook,Note,Error")
 
 	// Func to convert a single .agenda file to .enex
 	//
@@ -420,9 +424,10 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 				} else if a.Type == 5 {
 					// hyperlink
 					//
-					attmap[a.Identifier] = ContentEmbedded{ContentType: "H", Location: a.InfoProperties.Url, Name: a.InfoProperties.Description, EnexType: ""}
+					attmap[a.Identifier] = ContentEmbedded{ContentType: "H", Location: a.InfoProperties.Url, Name: a.InfoProperties.Url, EnexType: ""}
 				} else {
-					log.Fatalf("EmbededObject Type %d not yet supported", a.Type)
+					fmt.Fprintf(r, "%s,%s,EmbededObject Type %d not yet supported\n", agenda, s.Title, a.Type)
+					attmap[a.Identifier] = ContentEmbedded{ContentType: "Unknown", Location: a.InfoProperties.Url, Name: a.InfoProperties.Url, EnexType: ""}
 				}
 
 			}
@@ -459,7 +464,23 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 						//
 						// collect these into report.txt file
 						//
-						fmt.Fprintf(r, "Notebook [%s], note [%s], Err: No object with BlobIdentifier %s\n", agenda, s.Title, a.Attachment.BlobIdentifier)
+						fmt.Fprintf(r, "%s,%s,No object with BlobIdentifier %s\n", agenda, s.Title, a.Attachment.BlobIdentifier)
+						continue
+					}
+
+					// Unknown
+					//
+					if attloc.ContentType == "Unknown" {
+						// write plain text without any media
+						//
+						txt := strings.TrimRight(c.String, "\n")
+						txt = html.EscapeString(strings.TrimSpace(txt))
+						if txt == "" {
+							txt = html.EscapeString(attloc.Name)
+						}
+						if txt != "" {
+							fmt.Fprint(w, txt)
+						}
 						continue
 					}
 
