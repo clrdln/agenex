@@ -6,6 +6,7 @@ import (
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"io/ioutil"
@@ -163,8 +164,12 @@ func main() {
 	snb := func(agenda string) {
 		notebookName := strings.TrimSuffix(filepath.Base(agenda), filepath.Ext(agenda))
 		enex := filepath.Join(_o, fmt.Sprintf("%s.enex", notebookName))
-		notebook(agenda, enex, r)
-		fmt.Printf("|\033[32m%-50s\033[0m|\033[34m%-50s\033[0m|\n", agenda, enex)
+		e := notebook(agenda, enex, r)
+		if e != nil {
+			fmt.Printf("\033[31m%-4s\033[0m\033[33m%-50s\033[0m|\033[34m%-50s\033[0m\n", "\u274C", agenda, enex)
+		} else {
+			fmt.Printf("\033[32m%-4s\033[0m\033[33m%-50s\033[0m|\033[34m%-50s\033[0m\n", "\u2713", agenda, enex)
+		}
 	}
 
 	// Run converter
@@ -194,13 +199,13 @@ func main() {
 	log.Printf("Conversion completed for [%d] agenda files. See %s for errors\n", total, rf)
 }
 
-func notebook(agenda string, enex string, r *bufio.Writer) {
+func notebook(agenda string, enex string, r *bufio.Writer) error {
 
 	// open .agenda (zip archive)
 	//
 	zf, err := zip.OpenReader(agenda)
 	if err != nil {
-		log.Fatal("Error reading archive: ", err)
+		return err
 	}
 	defer zf.Close()
 
@@ -224,10 +229,10 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 
 	// func to read file content into []byte
 	//
-	read := func(f string) []byte {
+	read := func(f string) ([]byte, error) {
 		file, e := zf.Open(f)
 		if e != nil {
-			log.Fatal("Error when opening file: ", e)
+			return nil, errors.New(fmt.Sprintf("Error when opening file %s: %s", f, e))
 		}
 		defer file.Close()
 
@@ -235,30 +240,34 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 		//
 		fc, e := ioutil.ReadAll(file)
 		if e != nil {
-			log.Fatal("Error reading Data.json: ", e)
+			return nil, errors.New(fmt.Sprintf("Error reading file %s: %s", f, e))
 		}
-		return fc
+		return fc, nil
 	}
 
 	// read content from json file
 	//
-	content := read("Archive/Data.json")
+	content, err := read("Archive/Data.json")
+	if err != nil {
+		return err
+	}
 	// unmarshall the data into `payload`
 	//
 	var payload Agenda
 	err = json.Unmarshal(content, &payload)
 	if err != nil {
-		log.Fatal("Error during Unmarshal(): ", err)
+		return errors.New(fmt.Sprintf("Error during Unmarshal(): %s", err))
 	}
 
 	// create a temp .enex file
 	//
 	notebook, err := os.Create(enex)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer notebook.Close()
 	w := bufio.NewWriter(notebook)
+	defer w.Flush()
 
 	// use the same timestamp for all to-be-generated docs
 	//
@@ -317,7 +326,7 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 			var body []Content
 			err := json.Unmarshal([]byte(p.Content), &body)
 			if err != nil {
-				log.Fatal("Error during Unmarshal(): ", err)
+				return errors.New(fmt.Sprintf("Error during Unmarshal(): %s", err))
 			}
 
 			// identify style (body/list)
@@ -390,7 +399,11 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 
 				_mime := mime.TypeByExtension(extension)
 				if _mime == "" {
-					log.Fatalf("Mime type not defined for extension %s", extension)
+					_mime = MimeDict[extension]
+				}
+				if _mime == "" {
+					fmt.Fprintf(r, "%s,%s,Mime type not defined for extension %s", agenda, s.Title, extension)
+					continue
 				}
 
 				name := fmt.Sprintf("%s%s", a.BlobIdentifier, extension)
@@ -412,7 +425,11 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 
 					_mime := mime.TypeByExtension(extension)
 					if _mime == "" {
-						log.Fatalf("Mime type not defined for extension %s", extension)
+						_mime = MimeDict[extension]
+					}
+					if _mime == "" {
+						fmt.Fprintf(r, "%s,%s,Mime type not defined for extension %s", agenda, s.Title, extension)
+						continue
 					}
 
 					blobId := a.InfoProperties.BlobIdentifier
@@ -518,7 +535,11 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 					}
 					// read the content
 					//
-					attfc := read(attloc.Location)
+					attfc, e := read(attloc.Location)
+					if e != nil {
+						fmt.Fprintf(r, "Notebook [%s], note [%s], Err: e\n", agenda, s.Title)
+						continue
+					}
 
 					// compute hash
 					//
@@ -588,25 +609,27 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 		// write <resource> elements for all attachments in `attmap`
 		//
 		for _, v := range attmap {
-			// first, check if this file exists within archive attachment folder
-			//
 			if v.ContentType != "A" {
 				continue
 			}
+			//  check if this file exists within archive attachment folder
+			//
 			if !attExists(v.Location) {
 				// skip this file without any error message, as it should have been reported
 				// during previous steps
 				//
 				continue
 			}
-			fmt.Fprintln(w, "<resource>\n<data encoding=\"base64\">")
-
 			// base64 encode file
 			//
-			fc := read(v.Location)
+			fc, e := read(v.Location)
+			if e != nil {
+				fmt.Fprintf(r, "Notebook [%s], note [%s], Err: %s\n", agenda, s.Title, e)
+				continue
+			}
 			b64 := base64.StdEncoding.EncodeToString(fc)
+			fmt.Fprintln(w, "<resource>\n<data encoding=\"base64\">")
 			fmt.Fprintln(w, b64)
-
 			fmt.Fprintln(w, "</data>")
 			fmt.Fprintf(w, "<mime>%s</mime>\n", v.EnexType)
 			fmt.Fprintln(w, "<resource-attributes>")
@@ -625,4 +648,5 @@ func notebook(agenda string, enex string, r *bufio.Writer) {
 	// Flush any remaining content in buffer
 	//
 	w.Flush()
+	return nil
 }
