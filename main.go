@@ -12,6 +12,7 @@ import (
 	"io/ioutil"
 	"log"
 	"mime"
+	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -269,6 +270,28 @@ func notebook(agenda string, enex string, r *bufio.Writer) error {
 	w := bufio.NewWriter(notebook)
 	defer w.Flush()
 
+	DetectMime := func(f string) string {
+		extension := filepath.Ext(f)
+
+		// first, rely on the extension
+		//
+		_mime := mime.TypeByExtension(extension)
+		if _mime == "" {
+			_mime = MimeDict[strings.ToLower(extension)]
+		}
+		// without extension, or extension not listed in both default etc/mime.types
+		// and our custom mime.types map
+		// detect from file content using http pkg
+		//
+		if _mime == "" && attExists(f) {
+			x, e := read(f)
+			if e != nil {
+				_mime = http.DetectContentType(x)
+			}
+		}
+		return _mime
+	}
+
 	// use the same timestamp for all to-be-generated docs
 	//
 	_now := time.Now().UTC()
@@ -397,60 +420,61 @@ func notebook(agenda string, enex string, r *bufio.Writer) error {
 				//
 				extension := filepath.Ext(a.OriginalFileName)
 
-				_mime := mime.TypeByExtension(extension)
-				if _mime == "" {
-					_mime = MimeDict[extension]
-				}
-				if _mime == "" {
-					fmt.Fprintf(r, "%s,%s,Mime type not defined for extension %s", agenda, s.Title, extension)
-					continue
-				}
-
 				name := fmt.Sprintf("%s%s", a.BlobIdentifier, extension)
 				// look for the file in .agenda/Archive/Attachments dir
 				// (despite field `originalFilename`, `blobIdentifier` is actually name of the file exported by agenda)
 				//
 				location := fmt.Sprintf("Archive/Attachments/%s", name)
+
+				_mime := DetectMime(location)
+				if _mime == "" {
+					fmt.Fprintf(r, "%s,%s,Mime type not defined for extension %s\n", agenda, s.Title, extension)
+					continue
+				}
 				attmap[a.BlobIdentifier] = ContentEmbedded{ContentType: "A", Location: location, Name: name, EnexType: _mime}
 			}
 			// collect embedded objects into `attmap`
 			//
 			for _, a := range p.EmbeddedObjects {
 
-				if a.Type == 7 {
+				/*
+					0: hashtags
+					1: @mention
+					2:
+					3:
+					4:
+					5: hyperlink
+					6: agenda internal link (to other note)
+					7: attachment
+					8:
+					9: action list
+				*/
 
+				if a.Type == 5 { // hyperlink
+					attmap[a.Identifier] = ContentEmbedded{ContentType: "H", Location: a.InfoProperties.Url, Name: a.InfoProperties.Url, EnexType: ""}
+				} else if a.Type == 7 { // attachment (file)
 					// use `originalFilename` to get file extension and mime type
 					//
 					extension := filepath.Ext(a.InfoProperties.OriginalFileName)
-
-					_mime := mime.TypeByExtension(extension)
-					if _mime == "" {
-						_mime = MimeDict[extension]
-					}
-					if _mime == "" {
-						fmt.Fprintf(r, "%s,%s,Mime type not defined for extension %s", agenda, s.Title, extension)
-						continue
-					}
-
 					blobId := a.InfoProperties.BlobIdentifier
-
 					name := fmt.Sprintf("%s%s", blobId, extension)
 
 					// look for the file in .agenda/Archive/Attachments/<StoreIdentifier> dir
 					// (despite field `originalFilename`, `blobIdentifier` is actually name of the file exported by agenda)
 					//
 					location := fmt.Sprintf("Archive/Attachments/%s/%s", a.StoreIdentifier, name)
+
+					_mime := DetectMime(location)
+					if _mime == "" {
+						fmt.Fprintf(r, "%s,%s,Mime type not defined for extension %s\n", agenda, s.Title, extension)
+						continue
+					}
 					attmap[a.Identifier] = ContentEmbedded{ContentType: "A", Location: location, Name: name, EnexType: _mime}
 
-				} else if a.Type == 5 {
-					// hyperlink
-					//
-					attmap[a.Identifier] = ContentEmbedded{ContentType: "H", Location: a.InfoProperties.Url, Name: a.InfoProperties.Url, EnexType: ""}
 				} else {
 					fmt.Fprintf(r, "%s,%s,EmbededObject Type %d not yet supported\n", agenda, s.Title, a.Type)
 					attmap[a.Identifier] = ContentEmbedded{ContentType: "Unknown", Location: a.InfoProperties.Url, Name: a.InfoProperties.Url, EnexType: ""}
 				}
-
 			}
 
 			if !InList {
@@ -472,12 +496,13 @@ func notebook(agenda string, enex string, r *bufio.Writer) error {
 
 					// retrieve relevant metadata from `attmap` and computing hash
 					//
-					var attloc ContentEmbedded
+					var attId string
 					if a.Attachment.BlobIdentifier != "" {
-						attloc = attmap[a.Attachment.BlobIdentifier]
+						attId = a.Attachment.BlobIdentifier
 					} else {
-						attloc = attmap[a.EmbeddedObjectIdentifier]
+						attId = a.EmbeddedObjectIdentifier
 					}
+					attloc := attmap[attId]
 
 					if attloc.ContentType == "" {
 						// strange scenario when no object is declared in `attachments` or `embeddedObjects` prop
@@ -485,7 +510,7 @@ func notebook(agenda string, enex string, r *bufio.Writer) error {
 						//
 						// collect these into report.txt file
 						//
-						fmt.Fprintf(r, "%s,%s,No object with BlobIdentifier %s\n", agenda, s.Title, a.Attachment.BlobIdentifier)
+						fmt.Fprintf(r, "%s,%s,No object with BlobIdentifier / EmbeddedObjectIdentifier %s\n", agenda, s.Title, attId)
 						continue
 					}
 
