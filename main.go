@@ -70,10 +70,8 @@ type EmbeddedObject struct {
 	InfoProperties struct {
 		OriginalFileName string `json:"originalFileName"`
 		Name             string `json:"name"`
-		//TextValue        string `json:"textValue"`
-		//Description      string `json:"description"`
-		BlobIdentifier string `json:"blobIdentifier"`
-		Url            string `json:"url"`
+		BlobIdentifier   string `json:"blobIdentifier"`
+		Url              string `json:"url"`
 	}
 	Identifier      string `json:"identifier"`
 	StoreIdentifier string `json:"storeIdentifier"`
@@ -90,11 +88,23 @@ type Attachment struct {
 // Store info of embedded contents during processing
 //
 type ContentEmbedded struct {
-	ContentType string // A: attachment, H: hyperlink
+	ContentType string // see Embedded Content Type
 	Name        string // attachment name or hyperlink's displayed text
 	Location    string // file location for attachment, href for hyperlink
 	EnexType    string // mime type
 }
+
+// embedded content types
+//
+const (
+	HASHTAG     = "1"
+	MENTION     = "2"
+	HYPERLINK   = "3"
+	AGENDA_LINK = "4"
+	ATTACHMENT  = "5"
+	ACTION_LIST = "6"
+	Unknown     = "u"
+)
 
 func main() {
 	// retrieve source file/folder as cmd arguments
@@ -431,14 +441,14 @@ func notebook(agenda string, enex string, r *bufio.Writer) error {
 					fmt.Fprintf(r, "%s,%s,Mime type not defined for extension %s\n", agenda, s.Title, extension)
 					continue
 				}
-				attmap[a.BlobIdentifier] = ContentEmbedded{ContentType: "A", Location: location, Name: name, EnexType: _mime}
+				attmap[a.BlobIdentifier] = ContentEmbedded{ContentType: ATTACHMENT, Location: location, Name: name, EnexType: _mime}
 			}
 			// collect embedded objects into `attmap`
 			//
 			for _, a := range p.EmbeddedObjects {
 
 				/*
-					0: hashtags
+					0: #hashtags
 					1: @mention
 					2:
 					3:
@@ -449,10 +459,25 @@ func notebook(agenda string, enex string, r *bufio.Writer) error {
 					8:
 					9: action list
 				*/
-
-				if a.Type == 5 { // hyperlink
-					attmap[a.Identifier] = ContentEmbedded{ContentType: "H", Location: a.InfoProperties.Url, Name: a.InfoProperties.Url, EnexType: ""}
-				} else if a.Type == 7 { // attachment (file)
+				if a.Type == 0 {
+					// #hashtags
+					//
+					attmap[a.Identifier] = ContentEmbedded{ContentType: HASHTAG, Location: "", Name: "", EnexType: ""}
+				} else if a.Type == 1 {
+					// @mention
+					//
+					attmap[a.Identifier] = ContentEmbedded{ContentType: MENTION, Location: "", Name: "", EnexType: ""}
+				} else if a.Type == 5 {
+					// hyperlink
+					//
+					attmap[a.Identifier] = ContentEmbedded{ContentType: HYPERLINK, Location: a.InfoProperties.Url, Name: a.InfoProperties.Url, EnexType: ""}
+				} else if a.Type == 6 {
+					// link to other agenda note/notebook
+					//
+					attmap[a.Identifier] = ContentEmbedded{ContentType: AGENDA_LINK, Location: "", Name: "", EnexType: ""}
+				} else if a.Type == 7 {
+					// attachment (file)
+					//
 					// use `originalFilename` to get file extension and mime type
 					//
 					extension := filepath.Ext(a.InfoProperties.OriginalFileName)
@@ -469,11 +494,11 @@ func notebook(agenda string, enex string, r *bufio.Writer) error {
 						fmt.Fprintf(r, "%s,%s,Mime type not defined for extension %s\n", agenda, s.Title, extension)
 						continue
 					}
-					attmap[a.Identifier] = ContentEmbedded{ContentType: "A", Location: location, Name: name, EnexType: _mime}
+					attmap[a.Identifier] = ContentEmbedded{ContentType: ATTACHMENT, Location: location, Name: name, EnexType: _mime}
 
 				} else {
 					fmt.Fprintf(r, "%s,%s,EmbededObject Type %d not yet supported\n", agenda, s.Title, a.Type)
-					attmap[a.Identifier] = ContentEmbedded{ContentType: "Unknown", Location: a.InfoProperties.Url, Name: a.InfoProperties.Url, EnexType: ""}
+					attmap[a.Identifier] = ContentEmbedded{ContentType: Unknown, Location: a.InfoProperties.Url, Name: a.InfoProperties.Name, EnexType: ""}
 				}
 			}
 
@@ -516,7 +541,7 @@ func notebook(agenda string, enex string, r *bufio.Writer) error {
 
 					// Unknown
 					//
-					if attloc.ContentType == "Unknown" {
+					if attloc.ContentType == Unknown || attloc.ContentType == HASHTAG || attloc.ContentType == MENTION || attloc.ContentType == AGENDA_LINK {
 						// write plain text without any media
 						//
 						txt := strings.TrimRight(c.String, "\n")
@@ -525,6 +550,11 @@ func notebook(agenda string, enex string, r *bufio.Writer) error {
 							txt = html.EscapeString(attloc.Name)
 						}
 						if txt != "" {
+							if attloc.ContentType == HASHTAG {
+								txt = fmt.Sprintf("#%s", txt)
+							} else if attloc.ContentType == MENTION {
+								txt = fmt.Sprintf("@%s", txt)
+							}
 							fmt.Fprint(w, txt)
 						}
 						continue
@@ -532,7 +562,7 @@ func notebook(agenda string, enex string, r *bufio.Writer) error {
 
 					// Hyperlinks
 					//
-					if attloc.ContentType == "H" {
+					if attloc.ContentType == HYPERLINK {
 						// use text of current body element
 						//
 						HrefText := html.EscapeString(strings.TrimRight(c.String, "\n"))
@@ -634,7 +664,7 @@ func notebook(agenda string, enex string, r *bufio.Writer) error {
 		// write <resource> elements for all attachments in `attmap`
 		//
 		for _, v := range attmap {
-			if v.ContentType != "A" {
+			if v.ContentType != ATTACHMENT {
 				continue
 			}
 			//  check if this file exists within archive attachment folder
