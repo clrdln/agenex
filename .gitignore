@@ -33,6 +33,7 @@ go.work
 
 # IDE
 .idea/
+.vscode/
 
 # End of https://www.toptal.com/developers/gitignore/api/go
 
